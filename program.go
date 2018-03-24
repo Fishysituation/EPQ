@@ -10,19 +10,19 @@ import (
 
 var (
 	//rack button
-	rack = rpio.Pin(1)
+	rack = rpio.Pin(10)
 
 	//help button
-	help = rpio.Pin(2)
+	help = rpio.Pin(11)
 
 	//height counter pins
-	c1 = rpio.Pin(3)
-	c2 = rpio.Pin(4)
-	c3 = rpio.Pin(5)
-	c4 = rpio.Pin(6)
+	c1 = rpio.Pin(5)
+	c2 = rpio.Pin(6)
+	c3 = rpio.Pin(13)
+	c4 = rpio.Pin(19)
 
 	//motor
-	motor = rpio.Pin(7)
+	motor = rpio.Pin(4)
 )
 
 //program entry point
