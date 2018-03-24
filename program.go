@@ -1,108 +1,363 @@
 package main
 
-import 
-(
-	"fmt"
-	"github.com/stianeikeland/go-rpio"
+import (
 	"time"
+
+	"github.com/go-rpio-master"
 )
 
-//declare pins
-//rack button
-rack := rpio.pin()
+//DECLARE PINS
 
-//array for height counter
+var (
+	//rack button
+	rack = rpio.Pin(1)
 
+	//help button
+	help = rpio.Pin(2)
+
+	//height counter pins
+	c1 = rpio.Pin(3)
+	c2 = rpio.Pin(4)
+	c3 = rpio.Pin(5)
+	c4 = rpio.Pin(6)
+
+	//motor
+	motor = rpio.Pin(7)
+)
 
 //program entry point
-func main()
-{
+func main() {
+
+	//open / map gpio memory
 	rpio.Open()
+	//init inputs
+	rack.Input()
+	c1.Input()
+	c2.Input()
+	c3.Input()
+	c4.Input()
+	//init outputs
+	motor.Output()
 
 	//loop indefinitely
-	for i := 0 ; i ++ 
-	{
+	for {
 		//check every 500ms
 		time.Sleep(time.Millisecond * 500)
-		
+
 		//if barbell is off rack
-		if rack.Read()
-		{
+		if rack.Read() == rpio.Low {
 			//execute main program
 			run()
 		}
 	}
 }
 
-
 //main program loop
-func run() 
-{
-	//arbitraru height variable
-	height := 50	
-	//main message channel with buffer 10 to avoid "deadlock"
-	c := make(chan string, 10)
+func run() {
+	//arbitrary height variable
+	height := 50
+	struggling := false
 
-	go updateHeight(&height, c)
-	go checkTime(&height, c)
-	go checkFallen(&height, c)
-	go checkHelp(c) 
-	go checkRack(c)
+	//check run states - also used for sync
+	run := make(chan bool)
+	//reciever message channel with buffer 5 to avoid "deadlock"
+	in := make(chan string, 5)
 
-	//iterate over channel range while it is open
-	for msg := range c
-	{
-		//if barbell has fallen	
-		if msg == "fall" 
-		{
-			//reracK barbell
+	//run all checks as goroutines
+	go updateHeight(&height, run)
+	go checkTime(&height, run, in)
+	go checkFall(&height, run, in)
+	go checkHelp(&struggling, run, in)
+	go checkRack(run, in)
 
-			//kill unnecessary channels
-			
-			return
-		}
+	//loop indefinitely
+	for {
+		select {
 
-		//if reracked
-		if msg == "rack"
-		{
+		//if message has come from in channel, handle it
+		case msg := <-in:
 
-			return 
-		}
+			//if barbell has fallen
+			if msg == "fall" {
+				//kill all checks
+				run <- false
+				temp := height
 
-		//if lifter is struggling
-		if msg == "stuggle"
-		{
-			//send message to checkHelp()
+				//wait on barbell height to increase (initial lift)
+				//prevents holding motor at stall torque when lifter lifting barbell
+				for {
+					if height != temp {
+						break
+					}
+				}
+				//reracK barbell
+				go updateHeight(&height, run)
+				reRack(&height)
+				//kill goroutine updateHeight when finished
+				run <- false
+				return
+			}
+
+			//if lifter wants help
+			if msg == "stop" {
+				//kill all checks
+				run <- false
+
+				//rerack barbell
+				go updateHeight(&height, run)
+				reRack(&height)
+				//kill goroutine updateHeight when finished
+				run <- false
+				return
+			}
+
+			//if reracked
+			if msg == "rack" {
+				run <- false
+				return
+			}
+
+			//if lifter is struggling
+			if msg == "stuggle" {
+				//update variable given to checkHelp
+				struggling = true
+			}
+
+		default:
+			//send regular operation to all
+			run <- true
 		}
 	}
 }
 
-//update pointer to height variable
-func updateHeight(height *int, c chan string)
-{
+func reRack(height *int) {
+	//loop indefinitely
+	for {
+		//turn motor on
+		motor.Write(rpio.High)
 
+		//if just under the original height is reached
+		if *height >= 48 {
+			break
+			//if barbell has been reracked
+		} else if rack.Read() == rpio.High {
+			break
+		}
+	}
+	//turn motor off
+	motor.Write(rpio.Low)
+}
+
+//update pointer to height variable
+func updateHeight(height *int, in chan bool) {
+
+	prev := 0
+	//get initial
+	for {
+		if c1.Read() == rpio.High {
+			prev = 1
+			break
+		} else if c2.Read() == rpio.High {
+			prev = 2
+			break
+		} else if c3.Read() == rpio.High {
+			prev = 3
+			break
+		} else if c4.Read() == rpio.High {
+			prev = 4
+			break
+		}
+	}
+
+	for {
+		//wait on control signal
+		msg := <-in
+		//if okay to continue
+		if msg == true {
+			//check buttons adjacent to prev
+			//increment/decrement height counter accordingly
+			if prev == 1 {
+				if c4.Read() == rpio.High {
+					*height--
+				} else if c2.Read() == rpio.High {
+					*height++
+				}
+
+			} else if prev == 2 {
+				if c1.Read() == rpio.High {
+					*height--
+				} else if c3.Read() == rpio.High {
+					*height++
+				}
+
+			} else if prev == 3 {
+				if c2.Read() == rpio.High {
+					*height--
+				} else if c4.Read() == rpio.High {
+					*height++
+				}
+
+			} else if prev == 4 {
+				if c3.Read() == rpio.High {
+					*height--
+				} else if c1.Read() == rpio.High {
+					*height++
+				}
+			}
+			//if channel in is given false, quit
+		} else {
+			return
+		}
+	}
 }
 
 //look at the rep times for signs of struggle
-func checkTime(height *int, c chan string)
-{
+func checkTime(height *int, in chan bool, out chan string) {
 
+	prev2 := *height
+	prev := *height
+	t := time.Now()
+	var initial time.Duration
+	count := 0
+
+	for {
+		//wait on control signal
+		msg := <-in
+		//if okay to continue
+		if msg == true {
+			//if the height has changed
+			if *height != prev {
+				//push heights along
+				prev2 = prev
+				prev = *height
+				//if prev is greater than both adjacent values
+				if prev2 < prev && *height < prev {
+					count++
+					//if first rep
+					if count == 1 {
+						//record rep time
+						initial = time.Since(t)
+					}
+					t = time.Now()
+				}
+				//if time taken is too great notify user and system
+				if time.Since(t) > 2*initial {
+					out <- "struggle"
+				}
+			}
+
+			//if channel in is given false, quit
+		} else {
+			return
+		}
+	}
 }
 
-//check if the barbell has fallen 
-func checkFallen(height *int, c chan string)
-{
+//check if the barbell has fallen
+func checkFall(height *int, in chan bool, out chan string) {
 
-}	
+	var times [5]time.Time
+	var heights [5]int
+
+	for {
+		//wait on control signal
+		msg := <-in
+		//if okay to continue
+		if msg == true {
+			//if height has changed
+			if *height != heights[4] {
+				//push previous along
+				for i := 0; i < 5; i++ {
+					times[i] = times[i+1]
+					heights[i] = heights[i+1]
+				}
+				//enter new time and height
+				times[4] = time.Now()
+				heights[4] = *height
+
+				//if time since 5 height changes ago was less than 200ms
+				if time.Since(times[0]) < time.Millisecond*500 {
+					//at least fall of 4 units
+					if heights[4]-heights[0] >= 4 {
+						out <- "fall"
+						return
+					}
+				}
+			}
+
+			//if channel in is given false, quit
+		} else {
+			return
+		}
+	}
+}
 
 //look at the help button
-func checkHelp(c chan string)
-{
-	c <- "struggle"
+func checkHelp(struggle *bool, in chan bool, out chan string) {
+
+	t := time.Now()
+	isPressed := false
+	for {
+		//wait on control signal
+		msg := <-in
+		//if okay to continue
+		if msg == true {
+			//if help button is pressed
+			if help.Read() == rpio.High {
+				//if lifter is deemed to be struggling
+				if *struggle == true {
+					//send stop signal to main
+					out <- "stop"
+					return
+
+					//if lifter isn't struggling and button has been held
+				} else if isPressed == true {
+					//if button held for over 2 seconds
+					if time.Since(t) > time.Second*2 {
+						//send stop signal to main
+						out <- "stop"
+						return
+					}
+
+					//if button not pressed in previous iteration
+				} else if isPressed == false {
+					//set press flag true
+					isPressed = true
+					//take current time
+					t = time.Now()
+				}
+
+				//else the button is (no longer) being pressed
+			} else {
+				//set press flag false
+				isPressed = false
+			}
+
+			//else if not ok
+		} else {
+			return
+		}
+
+	}
 }
 
 //check if barbell has be reracked
-func checkRack(c chan string)
-{
-	c <- "rack"
+func checkRack(in chan bool, out chan string) {
+
+	for {
+		//wait on control signal
+		msg := <-in
+		//if okay to continue
+		if msg == true {
+			//if barbell has been re-racked
+			if rack.Read() == rpio.High {
+				out <- "rack"
+				return
+			}
+
+			//if channel in is given false, quit
+		} else {
+			return
+		}
+	}
 }
