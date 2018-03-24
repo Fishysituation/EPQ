@@ -58,13 +58,15 @@ func run() {
 	height := 50
 	struggling := false
 
-	//check run states - also used for sync
+	//run state for checks - also used for sync
 	run := make(chan bool)
+	//run state for checkHeight
+	runHeight := make(chan bool)
 	//reciever message channel with buffer 5 to avoid "deadlock"
 	in := make(chan string, 5)
 
 	//run all checks as goroutines
-	go updateHeight(&height, run)
+	go updateHeight(&height, runHeight)
 	go checkTime(&height, run, in)
 	go checkFall(&height, run, in)
 	go checkHelp(&struggling, run, in)
@@ -91,20 +93,18 @@ func run() {
 					}
 				}
 				//reracK barbell
-				go updateHeight(&height, run)
 				reRack(&height)
 				//kill goroutine updateHeight when finished
-				run <- false
+				runHeight <- false
 				return
 			}
 
 			//if lifter wants help
 			if msg == "stop" {
 				//kill all checks
-				run <- false
+				runHeight <- false
 
 				//rerack barbell
-				go updateHeight(&height, run)
 				reRack(&height)
 				//kill goroutine updateHeight when finished
 				run <- false
@@ -170,10 +170,15 @@ func updateHeight(height *int, in chan bool) {
 	}
 
 	for {
-		//wait on control signal
-		msg := <-in
-		//if okay to continue
-		if msg == true {
+		select {
+		//if message has come in from in channel
+		case msg := <-in:
+			// ensure only quit if correct message sent through channel
+			if msg == false {
+				return
+			}
+
+		default:
 			//check buttons adjacent to prev
 			//increment/decrement height counter accordingly
 			if prev == 1 {
@@ -204,9 +209,6 @@ func updateHeight(height *int, in chan bool) {
 					*height++
 				}
 			}
-			//if channel in is given false, quit
-		} else {
-			return
 		}
 	}
 }
