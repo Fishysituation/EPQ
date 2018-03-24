@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-rpio-master"
@@ -9,6 +13,9 @@ import (
 //DECLARE PINS
 
 var (
+	//logger file path
+	pathLog = "logs/log"
+
 	//rack button
 	rack = rpio.Pin(10)
 
@@ -39,6 +46,9 @@ func main() {
 	//init outputs
 	motor.Output()
 
+	//create new log file
+	file := create(pathLog)
+
 	//loop indefinitely
 	for {
 		//check every 500ms
@@ -46,14 +56,53 @@ func main() {
 
 		//if barbell is off rack
 		if rack.Read() == rpio.Low {
+			//log
+			log("\n SET START", file)
 			//execute main program
-			run()
+			run(file)
+			//log
+			log("SET END \n", file)
 		}
 	}
 }
 
+//makes new log file
+func create(path string) *os.File {
+	//if given path already exists
+	file, err := os.Create(path + ".txt")
+	//if collision
+	if err != nil {
+		//keep looping changing name until no collition
+		count := 0
+		for {
+			//try to create file
+			file1, err1 := os.Create(path + strconv.Itoa(count) + ".txt")
+			//if exists
+			if err1 != nil {
+				//increment file no
+				count++
+
+				//else use file1
+			} else {
+				file = file1
+			}
+		}
+	}
+	return file
+}
+
+//writes message fileOut
+func log(text string, file *os.File) {
+
+	writer := bufio.NewWriter(file)
+	defer file.Close()
+
+	fmt.Fprintln(writer, text)
+	writer.Flush()
+}
+
 //main program loop
-func run() {
+func run(file *os.File) {
 	//arbitrary height variable
 	height := 50
 	struggling := false
@@ -84,7 +133,7 @@ func run() {
 				//kill all checks
 				run <- false
 				temp := height
-
+				log("barbell fallen", file)
 				//wait on barbell height to increase (initial lift)
 				//prevents holding motor at stall torque when lifter lifting barbell
 				for {
@@ -93,7 +142,9 @@ func run() {
 					}
 				}
 				//reracK barbell
+				log("barbell lifted", file)
 				reRack(&height)
+				log("reracked safely", file)
 				//kill goroutine updateHeight when finished
 				runHeight <- false
 				return
@@ -105,7 +156,10 @@ func run() {
 				run <- false
 
 				//rerack barbell
+				log("lifter asked for help", file)
 				reRack(&height)
+
+				log("reracked safely", file)
 				//kill goroutine updateHeight when finished
 				runHeight <- false
 				return
@@ -114,6 +168,7 @@ func run() {
 			//if reracked
 			if msg == "rack" {
 				run <- false
+				log("barbell reracked", file)
 				return
 			}
 
@@ -121,6 +176,14 @@ func run() {
 			if msg == "stuggle" {
 				//update variable given to checkHelp
 				struggling = true
+				log("lifter is struggling", file)
+			}
+
+			//if sending rep finished
+			_, err := strconv.Atoi(msg)
+			//if msg is numeric
+			if err != nil {
+				log("rep "+msg+"finished", file)
 			}
 
 		default:
@@ -234,6 +297,7 @@ func checkTime(height *int, in chan bool, out chan string) {
 				prev = *height
 				//if prev is greater than both adjacent values
 				if prev2 < prev && *height < prev {
+					//increment rep count
 					count++
 					//if first rep
 					if count == 1 {
@@ -241,6 +305,8 @@ func checkTime(height *int, in chan bool, out chan string) {
 						initial = time.Since(t)
 					}
 					t = time.Now()
+					//send the rep number
+					out <- strconv.Itoa(count)
 				}
 				//if time taken is too great notify user and system
 				if time.Since(t) > 2*initial {
