@@ -102,12 +102,12 @@ func run() {
 			//if lifter wants help
 			if msg == "stop" {
 				//kill all checks
-				runHeight <- false
+				run <- false
 
 				//rerack barbell
 				reRack(&height)
 				//kill goroutine updateHeight when finished
-				run <- false
+				runHeight <- false
 				return
 			}
 
