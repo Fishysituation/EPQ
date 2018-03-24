@@ -29,7 +29,12 @@ var (
 	c4 = rpio.Pin(19)
 
 	//motor
-	motor = rpio.Pin(4)
+	motor = rpio.Pin(12)
+
+	//RGB pins (common anode)
+	red   = rpio.Pin(16)
+	green = rpio.Pin(20)
+	blue  = rpio.Pin(21)
 )
 
 //program entry point
@@ -45,23 +50,38 @@ func main() {
 	c4.Input()
 	//init outputs
 	motor.Output()
+	red.Output()
+	green.Output()
+	blue.Output()
 
 	//create new log file
 	file := create(pathLog)
+
+	//ensure red and blue off
+	red.Write(rpio.High)
+	blue.Write(rpio.High)
 
 	//loop indefinitely
 	for {
 		//check every 500ms
 		time.Sleep(time.Millisecond * 500)
+		//keep green LED on
+		green.Write(rpio.Low)
 
 		//if barbell is off rack
 		if rack.Read() == rpio.Low {
+			//turn off green LED
+			green.Write(rpio.High)
 			//log
 			log("\n SET START", file)
 			//execute main program
 			run(file)
 			//log
 			log("SET END \n", file)
+
+			//turn red and blue off at end of set
+			red.Write(rpio.High)
+			blue.Write(rpio.High)
 		}
 	}
 }
@@ -123,6 +143,9 @@ func run(file *os.File) {
 
 	//loop indefinitely
 	for {
+		//keep blue (operation) led on
+		blue.Write(rpio.High)
+
 		select {
 
 		//if message has come from in channel, handle it
@@ -134,6 +157,11 @@ func run(file *os.File) {
 				run <- false
 				temp := height
 				log("barbell fallen", file)
+
+				//turn off operation, turn on red
+				blue.Write(rpio.High)
+				red.Write(rpio.Low)
+
 				//wait on barbell height to increase (initial lift)
 				//prevents holding motor at stall torque when lifter lifting barbell
 				for {
@@ -141,11 +169,15 @@ func run(file *os.File) {
 						break
 					}
 				}
+
 				//reracK barbell
 				log("barbell lifted", file)
+				//keep red LED flashing
+				go flashRed(runHeight)
 				reRack(&height)
+
 				log("reracked safely", file)
-				//kill goroutine updateHeight when finished
+				//kill goroutine updateHeight and flashRed when finished
 				runHeight <- false
 				return
 			}
@@ -154,13 +186,19 @@ func run(file *os.File) {
 			if msg == "stop" {
 				//kill all checks
 				run <- false
-
-				//rerack barbell
 				log("lifter asked for help", file)
+
+				//turn off operation, turn on red
+				blue.Write(rpio.High)
+				red.Write(rpio.Low)
+
+				//keep red LED flashing
+				go flashRed(runHeight)
+				//rerack barbell
 				reRack(&height)
 
 				log("reracked safely", file)
-				//kill goroutine updateHeight when finished
+				//kill goroutine updateHeight and flashRed when finished
 				runHeight <- false
 				return
 			}
@@ -168,6 +206,8 @@ func run(file *os.File) {
 			//if reracked
 			if msg == "rack" {
 				run <- false
+				//turn off operation led
+				blue.Write(rpio.High)
 				log("barbell reracked", file)
 				return
 			}
@@ -176,6 +216,8 @@ func run(file *os.File) {
 			if msg == "stuggle" {
 				//update variable given to checkHelp
 				struggling = true
+				//strobe red led
+				go askUser()
 				log("lifter is struggling", file)
 			}
 
@@ -193,6 +235,7 @@ func run(file *os.File) {
 	}
 }
 
+//rerack the barbell
 func reRack(height *int) {
 	//loop indefinitely
 	for {
@@ -209,6 +252,42 @@ func reRack(height *int) {
 	}
 	//turn motor off
 	motor.Write(rpio.Low)
+}
+
+//singal barbell is being reracked
+func flashRed(in chan bool) {
+	for {
+		select {
+		//if message sent over in channel
+		case msg := <-in:
+			//ensure correct exit signal is sent
+			if msg == false {
+				//turn off red LED
+				red.Write(rpio.High)
+				return
+			}
+		//else keep flashing LED
+		default:
+			red.Toggle()
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+//signal to user with RGB if they need help
+func askUser() {
+	//set blue led off
+	blue.Write(rpio.High)
+	//strobe red 5 times
+	for i := 0; i < 5; i++ {
+		red.Write(rpio.Low)
+		time.Sleep(time.Millisecond * 500)
+		red.Write(rpio.High)
+		time.Sleep(time.Millisecond * 500)
+	}
+	//turm blue back on
+	blue.Write(rpio.Low)
+	return
 }
 
 //update pointer to height variable
