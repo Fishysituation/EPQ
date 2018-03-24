@@ -11,7 +11,6 @@ import (
 )
 
 //DECLARE PINS
-
 var (
 	//logger file path
 	pathLog = "logs/log"
@@ -27,6 +26,8 @@ var (
 	c2 = rpio.Pin(6)
 	c3 = rpio.Pin(13)
 	c4 = rpio.Pin(19)
+	//create sensor array for easier reference
+	heightSensor = [4]rpio.Pin{c1, c2, c3, c4}
 
 	//motor
 	motor = rpio.Pin(12)
@@ -86,6 +87,8 @@ func main() {
 	}
 }
 
+//
+//FILE LOGGING/HANDLING
 //makes new log file
 func create(path string) *os.File {
 	//if given path already exists
@@ -121,7 +124,8 @@ func log(text string, file *os.File) {
 	writer.Flush()
 }
 
-//main program loop
+//
+//main operation loop
 func run(file *os.File) {
 	//arbitrary height variable
 	height := 50
@@ -235,6 +239,7 @@ func run(file *os.File) {
 	}
 }
 
+//
 //rerack the barbell
 func reRack(height *int) {
 	//loop indefinitely
@@ -254,6 +259,8 @@ func reRack(height *int) {
 	motor.Write(rpio.Low)
 }
 
+//
+//LED SIGNALS
 //singal barbell is being reracked
 func flashRed(in chan bool) {
 	for {
@@ -290,23 +297,20 @@ func askUser() {
 	return
 }
 
+//
 //update pointer to height variable
 func updateHeight(height *int, in chan bool) {
 
 	prev := 0
 	//get initial
 	for {
-		if c1.Read() == rpio.High {
-			prev = 1
-			break
-		} else if c2.Read() == rpio.High {
-			prev = 2
-			break
-		} else if c3.Read() == rpio.High {
-			prev = 3
-			break
-		} else if c4.Read() == rpio.High {
-			prev = 4
+		for i := 0; i < 4; i++ {
+			if heightSensor[i].Read() == rpio.High {
+				prev = i
+			}
+		}
+		//break out of loop
+		if prev != 0 {
 			break
 		}
 	}
@@ -323,38 +327,19 @@ func updateHeight(height *int, in chan bool) {
 		default:
 			//check buttons adjacent to prev
 			//increment/decrement height counter accordingly
-			if prev == 1 {
-				if c4.Read() == rpio.High {
-					*height--
-				} else if c2.Read() == rpio.High {
-					*height++
-				}
+			if heightSensor[(prev+5)%4].Read() == rpio.High {
+				*height++
+			}
 
-			} else if prev == 2 {
-				if c1.Read() == rpio.High {
-					*height--
-				} else if c3.Read() == rpio.High {
-					*height++
-				}
-
-			} else if prev == 3 {
-				if c2.Read() == rpio.High {
-					*height--
-				} else if c4.Read() == rpio.High {
-					*height++
-				}
-
-			} else if prev == 4 {
-				if c3.Read() == rpio.High {
-					*height--
-				} else if c1.Read() == rpio.High {
-					*height++
-				}
+			if heightSensor[(prev+3)%4].Read() == rpio.High {
+				*height--
 			}
 		}
 	}
 }
 
+//
+//CHECK CONDITIONS
 //look at the rep times for signs of struggle
 func checkTime(height *int, in chan bool, out chan string) {
 
