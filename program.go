@@ -148,7 +148,7 @@ func run(file *os.File) {
 	//loop indefinitely
 	for {
 		//keep blue (operation) led on
-		blue.Write(rpio.High)
+		blue.Write(rpio.Low)
 
 		select {
 
@@ -167,9 +167,13 @@ func run(file *os.File) {
 				red.Write(rpio.Low)
 
 				//wait on barbell height to increase (initial lift)
-				//prevents holding motor at stall torque when lifter lifting barbell
+				//or until user presses help button
+				//prevents holding motor at stall
 				for {
 					if height != temp {
+						break
+					}
+					if help.Read() == rpio.High {
 						break
 					}
 				}
