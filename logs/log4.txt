@@ -1,0 +1,6 @@
+SET START
+rep 1 finished
+barbell fallen
+help button pressed
+reracked safely
+SET END

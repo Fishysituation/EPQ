@@ -1,0 +1,8 @@
+SET START
+rep 1 finished
+rep 2 finished
+rep 3 finished
+rep 4 finished 
+rep 5 finished
+barbell reracked
+SET END

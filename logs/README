@@ -1,0 +1,9 @@
+The following logs are from test runs with the following conditions
+
+log .txt - normal test run
+log0.txt - lifter struggles, does not ask for help
+log1.txt - lifter struggles, asks for help
+log2.txt - lifter does not struggle, presses help button for two seconds
+log3.txt - barbell falls, lifter raises barbell first
+log4.txt - barbell falls, lifter presses help button first
+log5.txt - lifter struggles, barbell falls

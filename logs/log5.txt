@@ -1,0 +1,9 @@
+SET START
+rep 1 finished
+lifter is struggling
+rep 2 finished
+rep 3 finished
+barbell fallen
+barbell lifted
+reracked safely
+SET END

@@ -171,15 +171,16 @@ func run(file *os.File) {
 				//prevents holding motor at stall
 				for {
 					if height != temp {
+						log("barbell lifted", file)
 						break
 					}
 					if help.Read() == rpio.High {
+						log("help button pressed", file)
 						break
 					}
 				}
 
 				//reracK barbell
-				log("barbell lifted", file)
 				//keep red LED flashing
 				go flashRed(runHeight)
 				reRack(&height)
@@ -233,7 +234,7 @@ func run(file *os.File) {
 			_, err := strconv.Atoi(msg)
 			//if msg is numeric
 			if err != nil {
-				log("rep "+msg+"finished", file)
+				log("rep "+msg+" finished", file)
 			}
 
 		default:
@@ -251,7 +252,7 @@ func reRack(height *int) {
 		//turn motor on
 		motor.Write(rpio.High)
 
-		//if just under the original height is reached
+		//if just under (around 3 cm) the original height is reached
 		if *height >= 48 {
 			break
 			//if barbell has been reracked
@@ -331,12 +332,12 @@ func updateHeight(height *int, in chan bool) {
 		default:
 			//check buttons adjacent to prev
 			//increment/decrement height counter accordingly
-			if heightSensor[(prev+5)%4].Read() == rpio.High {
-				*height++
-			}
-
 			if heightSensor[(prev+3)%4].Read() == rpio.High {
 				*height--
+			}
+
+			if heightSensor[(prev+5)%4].Read() == rpio.High {
+				*height++
 			}
 		}
 	}

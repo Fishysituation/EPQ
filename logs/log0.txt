@@ -1,0 +1,6 @@
+SET START
+rep 1 finished
+lifter is struggling
+rep 2 finished
+reracked safely
+SET END
